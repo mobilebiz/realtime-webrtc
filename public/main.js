@@ -9,6 +9,9 @@ const instructionsInput = document.getElementById('instructions');
 const voiceSelect = document.getElementById('voice');
 const micSelect = document.getElementById('microphone');
 
+// Add new UI element
+const initialGreetingInput = document.getElementById('initial-greeting');
+
 // State
 let peerConnection = null;
 let dataChannel = null;
@@ -22,10 +25,87 @@ let aiResponseDone = false;
 // Settings
 let currentSettings = {
   instructions: "日本語で親しみやすく話してください。",
+  initialGreeting: "こんにちは！チャッピーです。何かお手伝いできることはありますか？",
   voice: "verse",
   model: "gpt-realtime-2025-08-28",
   microphoneId: ""
 };
+
+// ...
+
+// Load Settings from Server
+async function loadSettings() {
+  try {
+    const res = await fetch('/settings');
+    if (res.ok) {
+      const savedSettings = await res.json();
+      currentSettings = { ...currentSettings, ...savedSettings };
+
+      // Reflect to UI
+      instructionsInput.value = currentSettings.instructions;
+      if (initialGreetingInput) initialGreetingInput.value = currentSettings.initialGreeting || "こんにちは！チャッピーです。何かお手伝いできることはありますか？";
+      voiceSelect.value = currentSettings.voice;
+      if (currentSettings.model) modelSelect.value = currentSettings.model;
+    }
+  } catch (err) {
+    console.error("Failed to load settings:", err);
+  }
+}
+
+// ...
+
+// UI Event Listeners
+settingsBtn.addEventListener('click', async () => {
+  // ...
+  // Ensure UI matches current settings
+  instructionsInput.value = currentSettings.instructions;
+  if (initialGreetingInput) initialGreetingInput.value = currentSettings.initialGreeting;
+  voiceSelect.value = currentSettings.voice;
+  modelSelect.value = currentSettings.model;
+
+  settingsModal.classList.add('open');
+});
+
+// ...
+
+saveSettingsBtn.addEventListener('click', async () => {
+  currentSettings.instructions = instructionsInput.value;
+  if (initialGreetingInput) currentSettings.initialGreeting = initialGreetingInput.value;
+  currentSettings.voice = voiceSelect.value;
+  currentSettings.microphoneId = micSelect.value;
+  currentSettings.model = modelSelect.value;
+
+  await saveSettings();
+  // ...
+});
+
+// ...
+
+// Update session during call (inject response.create with greeting)
+function updateSession() {
+  // ... (existing updateSession logic)
+  const event = {
+    // ...
+  };
+  dataChannel.send(JSON.stringify(event));
+  appendMessage('ai', '[システム] 設定を更新しました');
+
+  // Trigger initial AI greeting
+  setTimeout(() => {
+    const greetingText = currentSettings.initialGreeting || "こんにちは！チャッピーです。何かお手伝いできることはありますか？";
+    const responseCreate = {
+      type: "response.create",
+      response: {
+        modalities: ["audio", "text"],
+        instructions: `「${greetingText}」と元気に挨拶してください。`,
+      }
+    };
+    if (dataChannel && dataChannel.readyState === 'open') {
+      dataChannel.send(JSON.stringify(responseCreate));
+      console.log("Sent initial greeting request");
+    }
+  }, 500);
+}
 
 // Cost Constants (per 1M tokens)
 const COST_RATES = {
@@ -184,6 +264,22 @@ function updateSession() {
   };
   dataChannel.send(JSON.stringify(event));
   appendMessage('ai', '[システム] 設定を更新しました');
+
+  // Trigger initial AI greeting
+  setTimeout(() => {
+    const greetingText = currentSettings.initialGreeting || "こんにちは！チャッピーです。何かお手伝いできることはありますか？";
+    const responseCreate = {
+      type: "response.create",
+      response: {
+        modalities: ["audio", "text"],
+        instructions: `「${greetingText}」と元気に挨拶してください。`,
+      }
+    };
+    if (dataChannel && dataChannel.readyState === 'open') {
+      dataChannel.send(JSON.stringify(responseCreate));
+      console.log("Sent initial greeting request");
+    }
+  }, 500);
 }
 
 // WebRTC Logic
@@ -423,13 +519,18 @@ function handleDataChannelMessage(e) {
           }
         }
 
-        // Handle delayed disconnect
+        // Handle delayed disconnect with VAD (Silence Detection)
         if (shouldDisconnect) {
-          console.log("Disconnecting after delay...");
-          // Slight delay to allow audio playback to finish
+          aiResponseDone = true;
+          console.log("AI response done. Starting silence detection...");
+          checkSilence();
+          // Fail-safe timeout (10s)
           setTimeout(() => {
-            stopCall();
-          }, 3000);
+            if (isCallActive) {
+              console.log("Fail-safe disconnect triggered.");
+              stopCall();
+            }
+          }, 10000);
         }
         break;
 
@@ -443,6 +544,53 @@ function handleDataChannelMessage(e) {
   } catch (err) {
     console.error("Error handling data channel message:", err);
   }
+}
+
+// Audio Analysis for VAD
+function setupAudioAnalysis(stream) {
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    // Do not connect to destination effectively muting it if we do (but we want to hear it via audioEl)
+    // The audioEl handles playback. Analyser just analyzes.
+  } catch (e) {
+    console.error("Audio Context setup failed:", e);
+  }
+}
+
+function checkSilence() {
+  if (!isCallActive || !analyser || !shouldDisconnect) return;
+
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(dataArray);
+
+  // Calculate average volume
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) {
+    sum += dataArray[i];
+  }
+  const average = sum / dataArray.length;
+
+  // console.log("VAD Level:", average); // Debug logging removed
+
+  // Threshold close to 0 (silence)
+  // If average < 10 for a certain duration
+  if (average < 10) {
+    if (!silenceStart) {
+      silenceStart = Date.now();
+    } else if (Date.now() - silenceStart > 1000) { // 1 second of silence
+      console.log("Silence detected. Disconnecting.");
+      stopCall();
+      return;
+    }
+  } else {
+    silenceStart = null; // Reset if sound detected
+  }
+
+  requestAnimationFrame(checkSilence);
 }
 
 // Initial settings load and mic check
