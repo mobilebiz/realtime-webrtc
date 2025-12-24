@@ -30,7 +30,7 @@ OpenAI Realtime API (WebRTC) を使用したリアルタイム音声対話アプ
 ### 1. リポジトリのクローンと依存関係のインストール
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/mobilebiz/realtime-webrtc.git
 cd realtime-webrtc
 npm install
 ```
