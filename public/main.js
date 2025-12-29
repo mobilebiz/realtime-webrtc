@@ -257,6 +257,21 @@ function updateSession() {
           type: "function",
           name: "end_call",
           description: "End the conversation and disconnect the call. Use this when the user says goodbye or asking to end the call.",
+        },
+        {
+          type: "function",
+          name: "search_transrec",
+          description: "Search for TRANSREC information (e.g. cancellation policy, service details) using the RAG engine.",
+          parameters: {
+            type: "object",
+            properties: {
+              q: {
+                type: "string",
+                description: "The search query (e.g., '解約について', 'サービスの概要')"
+              }
+            },
+            required: ["q"]
+          }
         }
       ],
       tool_choice: "auto"
@@ -472,7 +487,7 @@ callBtn.addEventListener('click', () => {
   }
 });
 
-function handleDataChannelMessage(e) {
+async function handleDataChannelMessage(e) {
   try {
     const event = JSON.parse(e.data);
 
@@ -487,6 +502,51 @@ function handleDataChannelMessage(e) {
             localStream.getAudioTracks().forEach(track => track.enabled = false);
           }
           appendMessage('ai', '[システム] 通話を終了しています...');
+        } else if (event.name === 'search_transrec') {
+          console.log("AI requested TRANSREC search:", event.arguments);
+          try {
+            const args = JSON.parse(event.arguments);
+            const searchResponse = await fetch("/search", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ q: args.q })
+            });
+            const searchData = await searchResponse.json();
+
+            console.log("Search result:", searchData);
+
+            const toolOutput = {
+              type: "conversation.item.create",
+              item: {
+                type: "function_call_output",
+                call_id: event.call_id,
+                output: JSON.stringify(searchData)
+              }
+            };
+            dataChannel.send(JSON.stringify(toolOutput));
+
+            const responseCreate = {
+              type: "response.create"
+            };
+            dataChannel.send(JSON.stringify(responseCreate));
+
+            appendMessage('ai', `[システム] 検索中: ${args.q}`);
+          } catch (e) {
+            console.error("Search failed:", e);
+            const toolError = {
+              type: "conversation.item.create",
+              item: {
+                type: "function_call_output",
+                call_id: event.call_id,
+                output: JSON.stringify({ error: "Failed to search" })
+              }
+            };
+            dataChannel.send(JSON.stringify(toolError));
+            const responseCreate = {
+              type: "response.create"
+            };
+            dataChannel.send(JSON.stringify(responseCreate));
+          }
         }
         break;
 
