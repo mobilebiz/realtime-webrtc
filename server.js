@@ -6,7 +6,7 @@ const path = require("path");
 dotenv.config();
 
 const app = express();
-const port = 3000;
+const port = 8080;
 const settingsFile = path.resolve(__dirname, 'settings.json');
 
 app.use(express.static("public"));
