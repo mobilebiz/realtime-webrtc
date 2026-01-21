@@ -193,7 +193,12 @@ async function getMicrophones() {
     // Restore selection if exists and still available
     if (currentSettings.microphoneId) {
       const exists = audioInputs.some(d => d.deviceId === currentSettings.microphoneId);
-      if (exists) micSelect.value = currentSettings.microphoneId;
+      if (exists) {
+        micSelect.value = currentSettings.microphoneId;
+      } else {
+        console.warn(`Saved microphone ID ${currentSettings.microphoneId} not found. Reverting to default.`);
+        currentSettings.microphoneId = ""; // Reset if not found
+      }
     }
   } catch (err) {
     console.error("Error enumerating devices:", err);
@@ -360,7 +365,16 @@ async function startCall() {
     const constraints = {
       audio: currentSettings.microphoneId ? { deviceId: { exact: currentSettings.microphoneId } } : true
     };
-    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      if (err.name === 'OverconstrainedError' && currentSettings.microphoneId) {
+        console.warn("OverconstrainedError with specific mic. Retrying with default audio.");
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } else {
+        throw err;
+      }
+    }
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
     // 6. Offer / Answer exchange
