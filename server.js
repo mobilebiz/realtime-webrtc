@@ -111,6 +111,35 @@ app.post("/session", async (req, res) => {
   }
 });
 
+app.post("/search", async (req, res) => {
+  try {
+    const { q } = req.body;
+    if (!q) {
+      return res.status(400).json({ error: "Query 'q' is required" });
+    }
+
+    const response = await fetch("https://rag-engine-service-mjsarkjxza-an.a.run.app/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ q }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("RAG Service Error:", response.status, errorText);
+      return res.status(response.status).json({ error: "RAG Service Error", details: errorText });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("Error in /search proxy:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server listening on http://localhost:${port}`);
 });
