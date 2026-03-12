@@ -264,21 +264,6 @@ function updateSession() {
           name: "end_call",
           description: "End the conversation and disconnect the call. Use this when the user says goodbye or asking to end the call.",
         },
-        {
-          type: "function",
-          name: "search_transrec",
-          description: "Search for TRANSREC information (e.g. cancellation policy, service details) using the RAG engine.",
-          parameters: {
-            type: "object",
-            properties: {
-              q: {
-                type: "string",
-                description: "The search query (e.g., '解約について', 'サービスの概要')"
-              }
-            },
-            required: ["q"]
-          }
-        }
       ],
       tool_choice: "auto"
     }
